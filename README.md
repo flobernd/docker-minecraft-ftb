@@ -5,7 +5,7 @@ A Docker image for running [FTB](https://www.feed-the-beast.com/) Minecraft serv
 ### Example
 
 ```bash
-docker run -it --rm --name minecraft-ftb \
+docker run -itd --rm --name minecraft-ftb \
     -v "/docker_data/minecraft:/var/lib/minecraft" \
     -e "FTB_MODPACK_ID=119" \
     -e "FTB_MODPACK_VERSION_ID=11614" \
@@ -15,11 +15,14 @@ docker run -it --rm --name minecraft-ftb \
     ghcr.io/flobernd/minecraft-ftb
 ```
 
-> [!NOTE]
-> The modpack ID and the version ID are displayed on the right-hand side of the modpack info page. For example, the [Direwolf20 1.20 modpack](https://www.feed-the-beast.com/modpacks/119-ftb-presents-direwolf20-120) has the ID `119` and the latest version, as of today, is `11614`.
+> [!WARNING]
+> The server process does not shut down gracefully, if no TTY is present. Please pass the `--tty`/`-t` switch (Docker) or use `tty: true` (Docker Compose).
 
-> [!IMPORTANT]
+> [!WARNING]
 > It is strongly recommended to set the `stop-timeout` / `stop_grace_period` to at least `60` seconds to avoid data loss when stopping the container.
+
+> [!NOTE]
+> It is recommended to pass the `--interactive`/`-i` switch (Docker) or use `stdin_open: true` (Docker Compose) to be able to use the server console after attaching to the container.
 
 ### Docker Compose Example
 
@@ -29,6 +32,8 @@ services:
     image: ghcr.io/flobernd/minecraft-ftb:latest
     container_name: minecraft-ftb
     restart: unless-stopped
+    tty: true
+    stdin_open: true
     stop_grace_period: 1m
     environment:
       - "FTB_MODPACK_ID=119"
@@ -45,6 +50,9 @@ services:
 #### `FTB_MODPACK_ID`
 
 The FTB modpack ID (*required*).
+
+> [!NOTE]
+> The modpack ID and the version ID are displayed on the right-hand side of the modpack info page. For example, the [Direwolf20 1.20 modpack](https://www.feed-the-beast.com/modpacks/119-ftb-presents-direwolf20-120) has the ID `119` and the latest version, as of today, is `11614`.
 
 #### `FTB_MODPACK_VERSION_ID`
 

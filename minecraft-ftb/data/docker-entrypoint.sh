@@ -22,6 +22,15 @@ function check_environment() {
     fi
 }
 
+function check_tty() {
+    # For some reason, the server process does not shut down gracefully, if no TTY is present ...
+
+    if [ ! -t 0 ] ; then
+        echo "Error: The server process requires a TTY. Please pass the '--tty' switch (Docker) or use 'tty: true' (Docker Compose)."
+        exit 1
+    fi
+}
+
 function patch_start_script() {
     # We have to make sure the `start.sh` script uses `exec` to launch the server. SIGINT and
     # other signals would not be forwarded to the Java process otherwise.
@@ -82,6 +91,7 @@ function confirm() {
 }
 
 if [ "$1" = "/var/lib/minecraft/start.sh" ]; then
+    check_tty
     check_environment
 
     local_pack_id=0

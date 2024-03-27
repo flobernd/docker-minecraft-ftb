@@ -5,6 +5,8 @@ services:
     image: flobernd/minecraft-ftb:latest
     container_name: minecraft-ftb
     restart: unless-stopped
+    tty: true
+    stdin_open: true
     stop_grace_period: 1m
     environment:
       - "FTB_MODPACK_ID=119"
