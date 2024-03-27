@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  minecraft-ftb:
+    image: flobernd/minecraft-ftb:latest
+    container_name: minecraft-ftb
+    restart: unless-stopped
+    stop_grace_period: 1m
+    environment:
+      - "FTB_MODPACK_ID=119"
+      - "FTB_MODPACK_VERSION_ID=11614"
+      - "ACCEPT_MOJANG_EULA=1"
+    volumes:
+      - ./volume:/var/lib/minecraft:rw
+    ports:
+      - 25565:25565

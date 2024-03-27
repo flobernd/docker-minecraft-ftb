@@ -1,0 +1,31 @@
+name: CD
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: flobernd/minecraft-ftb
+
+jobs:
+  main:
+    name: CD
+    uses:
+      ./.github/workflows/docker_release.yml
+    with:
+      registry: ghcr.io
+      image: flobernd/minecraft-ftb
+      context: ./minecraft-ftb/data
+      platforms: '["linux/amd64"]' # TODO: "linux/arm64"
+    secrets:
+      REGISTRY_USERNAME: ${{ github.actor }}
+      REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
