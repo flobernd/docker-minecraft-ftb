@@ -5,10 +5,9 @@ A Docker image for running [FTB](https://www.feed-the-beast.com/) Minecraft serv
 ### Example
 
 ```bash
-docker run -itd --rm --name minecraft-ftb \
+docker run -itd --name minecraft-ftb \
     -v "/docker_data/minecraft:/var/lib/minecraft" \
-    -e "FTB_MODPACK_ID=119" \
-    -e "FTB_MODPACK_VERSION_ID=11614" \
+    -e "FTB_MODPACK_ID=126" \
     -e "ACCEPT_MOJANG_EULA=1" \
     -p "25565:25565" \
     --stop-timeout=60 \
@@ -36,11 +35,10 @@ services:
     stdin_open: true
     stop_grace_period: 1m
     environment:
-      - "FTB_MODPACK_ID=119"
-      - "FTB_MODPACK_VERSION_ID=11614"
+      - "FTB_MODPACK_ID=126"
       - "ACCEPT_MOJANG_EULA=1"
     volumes:
-      - /docker_data/minecraft:/var/lib/minecraft:rw
+      - ./minecraft:/var/lib/minecraft:rw
     ports:
       - 25565:25565
 ```
@@ -52,19 +50,41 @@ services:
 The FTB modpack ID (*required*).
 
 > [!NOTE]
-> The modpack ID and the version ID are displayed on the right-hand side of the modpack info page. For example, the [Direwolf20 1.20 modpack](https://www.feed-the-beast.com/modpacks/119-ftb-presents-direwolf20-120) has the ID `119` and the latest version, as of today, is `11614`.
+> The modpack ID and the version ID are displayed on the right-hand side of the modpack info page. For example, the [Direwolf20 1.21 modpack](https://www.feed-the-beast.com/modpacks/126-ftb-presents-direwolf20-121) has the ID `126` and the latest version, as of today, is `12599`.
 
 #### `FTB_MODPACK_VERSION_ID`
 
-The FTB modpack version ID (*required*).
+The FTB modpack version ID.
+
+> [!NOTE]
+> If the configured version is lower than the version already installed, the container will fail to start with an error.
+
+Default: Latest version of the configured modpack.
 
 #### `ACCEPT_MOJANG_EULA`
 
 Set `1` to automatically agree to the [Mojang EULA](https://account.mojang.com/documents/minecraft_eula).
 
-This option enables unattended installation. Otherwise, an interactive session must be used to accept the EULA after installation.
+This option enables unattended installation. Otherwise, an interactive session must be used to accept the EULA after installation, or the `eula.txt` must be edited manually and the container restarted.
 
 Default: `0`.
+
+#### `AUTO_UPDATE`
+
+Set `1` to automatically update the modpack when the container is started.
+
+If `FTB_MODPACK_VERSION_ID` is set, the configured version number is used, otherwise the latest version of the modpack is determined automatically.
+
+Default: `0`
+
+#### `FORCE_REINSTALL`
+
+Set `1` to force a reinstallation of the modpack when the container is started.
+
+> [!WARNING]
+> This option should only be used in special cases, as constantly reinstalling the modpack significantly slows down the start of the container.
+
+Default: `0`
 
 ## License
 
