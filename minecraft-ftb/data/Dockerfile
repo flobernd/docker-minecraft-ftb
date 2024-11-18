@@ -5,12 +5,13 @@ FROM debian:bookworm-slim
 ENV FTB_MODPACK_ID=0
 ENV FTB_MODPACK_VERSION_ID=0
 ENV ACCEPT_MOJANG_EULA=0
-ENV USER_JVM_ARGS=
+ENV USER_JVM_ARGS=""
 ENV AUTO_UPDATE=0
 ENV FORCE_REINSTALL=0
 
 # Set up runtime dependencies
 
+# hadolint ignore=DL3008
 RUN set -eux; \
 	apt-get update; \
 	apt-get install -y --no-install-recommends \
@@ -22,6 +23,7 @@ RUN set -eux; \
 
 # Set up container user
 
+# hadolint ignore=DL3008
 RUN set -eux; \
 	groupadd --gid 99 --system minecraft; \
 	useradd \
