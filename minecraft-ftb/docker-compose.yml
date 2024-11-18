@@ -7,8 +7,9 @@ services:
     stdin_open: true
     stop_grace_period: 1m
     environment:
-      - "FTB_MODPACK_ID=126"
-      - "ACCEPT_MOJANG_EULA=1"
+      FTB_MODPACK_ID: 126
+      ACCEPT_MOJANG_EULA: 1
+      USER_JVM_ARGS: "-Xms1G -Xmx4G"
     volumes:
       - ./volume:/var/lib/minecraft:rw
     ports:
