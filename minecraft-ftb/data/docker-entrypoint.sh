@@ -143,7 +143,8 @@ patch_start_script() {
         return 1
     fi
 
-    printf "%s" "${output}" > /var/lib/minecraft/start.sh
+    # shellcheck disable=SC2059
+    printf "${output}" > /var/lib/minecraft/start.sh
 }
 
 update_user_jvm_args() {
