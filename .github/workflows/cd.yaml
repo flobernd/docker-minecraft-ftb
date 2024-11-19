@@ -25,7 +25,7 @@ jobs:
       registry: ghcr.io
       image: flobernd/minecraft-ftb
       context: ./minecraft-ftb/data
-      platforms: '["linux/amd64"]' # TODO: "linux/arm64"
+      platforms: '["linux/amd64", "linux/arm64"]'
     secrets:
       REGISTRY_USERNAME: ${{ github.actor }}
       REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
