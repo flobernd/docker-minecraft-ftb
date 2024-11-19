@@ -4,7 +4,7 @@ permissions:
   contents: read
   packages: write
 
-on:
+on: # yamllint disable-line rule:truthy
   workflow_call:
     inputs:
       registry:
@@ -55,8 +55,8 @@ jobs:
     steps:
       - name: Prepare
         run: |
-          platform=${{ matrix.platform }}
-          echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+          platform="${{ matrix.platform }}"
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "${GITHUB_ENV}"
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -158,5 +158,5 @@ jobs:
       - name: Create Manifest List and Push
         working-directory: /tmp/digests
         run: |
-          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.REGISTRY_IMAGE }}@sha256:%s ' *)
+          docker buildx imagetools create "$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "${DOCKER_METADATA_OUTPUT_JSON}")" \
+            "$(printf '${{ env.REGISTRY_IMAGE }}@sha256:%s ' *)"

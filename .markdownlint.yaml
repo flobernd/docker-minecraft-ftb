@@ -1,0 +1,7 @@
+# MD013/line-length : Line length : https://github.com/DavidAnson/markdownlint/blob/v0.36.1/doc/md013.md
+MD013:
+  # Number of characters
+  line_length: 140
+
+# MD028/no-blanks-blockquote : Blank line inside blockquote : https://github.com/DavidAnson/markdownlint/blob/v0.36.1/doc/md028.md
+MD028: false

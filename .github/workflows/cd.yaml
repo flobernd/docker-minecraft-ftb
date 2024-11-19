@@ -1,6 +1,6 @@
 name: CD
 
-on:
+on: # yamllint disable-line rule:truthy
   push:
     tags:
       - 'v*'
