@@ -94,7 +94,10 @@ query_version_info() {
 get_and_run_installer() {
     set -e
 
-    local pack_url="https://api.modpacks.ch/public/modpack/${1}/${2}/server/linux"
+    # shellcheck disable=SC2155
+    local architecture="$([ "$(uname -m)" == "x86_64" ] && echo "linux" || echo "arm\/linux")"
+
+    local pack_url="https://api.modpacks.ch/public/modpack/${1}/${2}/server/${architecture}"
     local pack_installer="/var/lib/minecraft/serverinstall_${1}_${2}"
 
     # Adjust permissions for 'minecraft' directory
