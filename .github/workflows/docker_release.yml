@@ -158,5 +158,6 @@ jobs:
       - name: Create Manifest List and Push
         working-directory: /tmp/digests
         run: |
-          docker buildx imagetools create "$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "${DOCKER_METADATA_OUTPUT_JSON}")" \
-            "$(printf '${{ env.REGISTRY_IMAGE }}@sha256:%s ' *)"
+          # shellcheck disable=SC2016,SC2046
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "${DOCKER_METADATA_OUTPUT_JSON}") \
+              $(printf '${{ env.REGISTRY_IMAGE }}@sha256:%s ' *)
