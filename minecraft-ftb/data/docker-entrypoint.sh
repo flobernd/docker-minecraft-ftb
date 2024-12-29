@@ -135,7 +135,7 @@ patch_start_script() {
         fi
 
         output+="${line}\n"
-    done < start.sh
+    done < /var/lib/minecraft/start.sh
 
     if [ ! "${success}" ]; then
         echoerr "Failed to patch 'start.sh' script."
