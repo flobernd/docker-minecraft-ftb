@@ -95,7 +95,7 @@ get_and_run_installer() {
     set -e
 
     # shellcheck disable=SC2155
-    local architecture="$([ "$(uname -m)" == "x86_64" ] && echo "linux" || echo "arm\/linux")"
+    local architecture="$([ "$(uname -m)" == "x86_64" ] && echo "linux" || echo "arm/linux")"
 
     local pack_url="https://api.modpacks.ch/public/modpack/${1}/${2}/server/${architecture}"
     local pack_installer="/var/lib/minecraft/serverinstall_${1}_${2}"
@@ -105,7 +105,22 @@ get_and_run_installer() {
     chmod 0700 /var/lib/minecraft
 
     # Download the installer
-    curl --fail --connect-timeout 30 --max-time 30 --no-progress-meter -o "${pack_installer}" "${pack_url}"
+    local content_type
+    content_type=$(curl --fail --connect-timeout 30 --max-time 30 --no-progress-meter -w '%{content_type}' -o "${pack_installer}" "${pack_url}") || exit $?
+
+    if [ "$content_type" != "application/octet-stream" ]; then
+        echoerr "Failed to download the modpack installer. Unexpected response from server."
+
+        if [ "$content_type" = "application/json" ]; then
+            # shellcheck disable=SC2155
+            local response="$(cat "${pack_installer}")"
+            echoerr "$(echo "${response}" | jq -r '.message')"
+        fi
+        
+        rm "${pack_installer}"
+        return 1
+    fi
+
     chmod +x "${pack_installer}"
 
     # Install- or update the modpack
