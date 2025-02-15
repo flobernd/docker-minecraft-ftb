@@ -49,7 +49,7 @@ check_tty() {
 # rt = modpack info JSON payload
 fetch_modpack_info() {
     local response
-    response=$(curl --fail --connect-timeout 30 --max-time 30 --no-progress-meter "https://api.modpacks.ch/public/modpack/$1") || exit $?
+    response=$(curl --fail --connect-timeout 30 --max-time 30 --no-progress-meter "https://api.feed-the-beast.com/v1/modpacks/public/modpack/$1") || exit $?
 
     if [ -z "${response}" ] || [ "$(echo "${response}" | jq -r '.status')" != "success" ]; then
         echoerr "Failed to fetch modpack info. Please check if the modpack id [${ansi_g}$1${ansi_rst}] is correct."
@@ -97,7 +97,7 @@ get_and_run_installer() {
     # shellcheck disable=SC2155
     local architecture="$([ "$(uname -m)" == "x86_64" ] && echo "linux" || echo "arm/linux")"
 
-    local pack_url="https://api.modpacks.ch/public/modpack/${1}/${2}/server/${architecture}"
+    local pack_url="https://api.feed-the-beast.com/v1/modpacks/public/modpack/${1}/${2}/server/${architecture}"
     local pack_installer="/var/lib/minecraft/serverinstall_${1}_${2}"
 
     # Adjust permissions for 'minecraft' directory
@@ -116,7 +116,7 @@ get_and_run_installer() {
             local response="$(cat "${pack_installer}")"
             echoerr "$(echo "${response}" | jq -r '.message')"
         fi
-        
+
         rm "${pack_installer}"
         return 1
     fi
