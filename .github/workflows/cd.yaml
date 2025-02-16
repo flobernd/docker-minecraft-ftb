@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IMAGE: flobernd/minecraft-ftb
+  IMAGE: IslandNolan/minecraft-ftb
 
 jobs:
   main:
@@ -23,7 +23,7 @@ jobs:
       ./.github/workflows/docker_release.yml
     with:
       registry: ghcr.io
-      image: flobernd/minecraft-ftb
+      image: IslandNolan/minecraft-ftb
       context: ./minecraft-ftb/data
       platforms: '["linux/amd64", "linux/arm64"]'
     secrets:

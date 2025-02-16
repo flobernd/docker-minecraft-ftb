@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  REGISTRY_IMAGE: localhost:5000/flobernd/minecraft-ftb
+  REGISTRY_IMAGE: localhost:5000/IslandNolan/minecraft-ftb
 
 jobs:
   build:
