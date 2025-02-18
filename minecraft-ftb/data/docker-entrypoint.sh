@@ -49,7 +49,7 @@ check_tty() {
 # rt = modpack info JSON payload
 fetch_modpack_info() {
     local response
-    response=$(curl --fail --connect-timeout 30 --max-time 30 --no-progress-meter "https://api.modpacks.ch/public/modpack/$1") || exit $?
+    response=$(curl --fail --connect-timeout 30 --max-time 30 --no-progress-meter "https://api.feed-the-beast.com/v1/modpacks/public/modpack/$1") || exit $?
 
     if [ -z "${response}" ] || [ "$(echo "${response}" | jq -r '.status')" != "success" ]; then
         echoerr "Failed to fetch modpack info. Please check if the modpack id [${ansi_g}$1${ansi_rst}] is correct."
@@ -64,7 +64,7 @@ fetch_modpack_info() {
 # rt = latest modpack version id
 query_latest_version_id() {
     # shellcheck disable=SC2155
-    local result=$(echo "$1" | jq -r '[.versions | sort_by(.updated) | reverse | .[] | select(.type == "Release" and .private == false) | .id][0]')
+    local result=$(echo "$1" | jq -r '[.versions | sort_by(.updated) | reverse | .[] | select((.type | ascii_downcase == "release") and .private == false) | .id][0]')
 
     if [ -z "${result}" ]; then
         echoerr "The selected modpack does not have a public release."
@@ -97,7 +97,7 @@ get_and_run_installer() {
     # shellcheck disable=SC2155
     local architecture="$([ "$(uname -m)" == "x86_64" ] && echo "linux" || echo "arm/linux")"
 
-    local pack_url="https://api.modpacks.ch/public/modpack/${1}/${2}/server/${architecture}"
+    local pack_url="https://api.feed-the-beast.com/v1/modpacks/public/modpack/${1}/${2}/server/${architecture}"
     local pack_installer="/var/lib/minecraft/serverinstall_${1}_${2}"
 
     # Adjust permissions for 'minecraft' directory
@@ -106,15 +106,14 @@ get_and_run_installer() {
 
     # Download the installer
     local content_type
-    content_type=$(curl --fail --connect-timeout 30 --max-time 30 --no-progress-meter -w '%{content_type}' -o "${pack_installer}" "${pack_url}") || exit $?
+    content_type=$(curl --fail --connect-timeout 30 --max-time 30 --no-progress-meter -w '%{content_type}' -o "${pack_installer}" "${pack_url}") || return $?
 
     if [ "$content_type" != "application/octet-stream" ]; then
         echoerr "Failed to download the modpack installer. Unexpected response from server."
 
         if [ "$content_type" = "application/json" ]; then
             # shellcheck disable=SC2155
-            local response="$(cat "${pack_installer}")"
-            echoerr "$(echo "${response}" | jq -r '.message')"
+            echoerr "$(jq -r '.message' "${pack_installer}")"
         fi
         
         rm "${pack_installer}"
@@ -128,15 +127,36 @@ get_and_run_installer() {
     rm "${pack_installer}"
 
     # Patch start script
-    patch_start_script
+    patch_start_script || return $?
 
     # Adjust permissions for files in 'minecraft' directory
     chown -R minecraft:minecraft /var/lib/minecraft
 }
 
+locate_start_script() {
+    local path="/var/lib/minecraft"
+
+    if [ -f "${path}/start.sh" ]; then
+        echo "${path}/start.sh"
+        return 0
+    fi
+
+    if [ -f "${path}/run.sh" ]; then
+        echo "${path}/run.sh"
+        return 0
+    fi
+
+    echoerr "Failed to locate 'start.sh' or 'run.sh' script."
+    echoerr "Please open an issue here: https://github.com/flobernd/docker-minecraft-ftb"
+    return 1
+}
+
 patch_start_script() {
-    # We have to make sure the `start.sh` script uses `exec` to launch the server. SIGINT and
-    # other signals would not be forwarded to the Java process otherwise.
+    # We have to make sure the `start.sh` or `run.sh` script uses `exec` to launch the server.
+    # SIGINT and other signals would not be forwarded to the Java process otherwise.
+
+    local file
+    file=$(locate_start_script) || return $?
 
     local regex='^("jre/.+/bin/java" .+ nogui)$'
     local output=""
@@ -150,16 +170,16 @@ patch_start_script() {
         fi
 
         output+="${line}\n"
-    done < /var/lib/minecraft/start.sh
+    done < "${file}"
 
     if [ ! "${success}" ]; then
-        echoerr "Failed to patch 'start.sh' script."
+        echoerr "Failed to patch 'start.sh' or 'run.sh' script."
         echoerr "Please open an issue here: https://github.com/flobernd/docker-minecraft-ftb"
         return 1
     fi
 
     # shellcheck disable=SC2059
-    printf "${output}" > /var/lib/minecraft/start.sh
+    printf "${output}" > "${file}"
 }
 
 update_user_jvm_args() {
@@ -171,10 +191,11 @@ update_user_jvm_args() {
     printf "%s" "${USER_JVM_ARGS}" | xargs -n 1 printf "%s\n" >> /var/lib/minecraft/user_jvm_args.txt
 }
 
-if [ "$1" = "/var/lib/minecraft/start.sh" ]; then
+if [ "$1" = "/var/lib/minecraft/start.sh" ] || [ "$1" = "/var/lib/minecraft/run.sh" ]; then
     check_tty
     check_environment
 
+    manifest_found=false
     local_pack_id=0
     local_version_id=0
     target_pack_id="${FTB_MODPACK_ID}"
@@ -182,12 +203,21 @@ if [ "$1" = "/var/lib/minecraft/start.sh" ]; then
 
     # Parse local modpack info
 
-    if [ -f version.json ]; then
-        local_pack_id=$(jq '.parent' version.json)
-        local_version_id=$(jq '.id' version.json)
+    if [ -f /var/lib/minecraft/version.json ]; then
+        local_pack_id=$(jq '.parent' /var/lib/minecraft/version.json)
+        local_version_id=$(jq '.id' /var/lib/minecraft/version.json)
+        manifest_found=true
+    fi
 
+    if [ -f /var/lib/minecraft/.manifest.json ]; then
+        local_pack_id=$(jq '.id' /var/lib/minecraft/.manifest.json)
+        local_version_id=$(jq '.versionId' /var/lib/minecraft/.manifest.json)
+        manifest_found=true
+    fi
+
+    if [ $manifest_found = true ]; then
         if [ -z "${local_pack_id}" ] || [ -z "${local_version_id}" ]; then
-            echoerr "A modpack is already installed, but the 'version.json' could not be parsed."
+            echoerr "A modpack is already installed, but the '.manifest.json' or version.json' could not be parsed."
             exit 1
         fi
 
@@ -286,6 +316,10 @@ if [ "$1" = "/var/lib/minecraft/start.sh" ]; then
     update_user_jvm_args
 
     # Start modpack
+
+    start_script=$(locate_start_script) || exit $?
+    # Make sure to use the correct start script for the installed modpack and version
+    set -- "${start_script}" "${@:2}"
 
     echo -e "Starting modpack '${ansi_b}${modpack_name}${ansi_rst}' [${ansi_g}${target_pack_id}${ansi_rst}] " \
             "version '${ansi_b}${local_version_name}${ansi_rst}' [${ansi_g}${local_version_id}${ansi_rst}]"
