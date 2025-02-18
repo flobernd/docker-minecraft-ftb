@@ -13,6 +13,9 @@ possible.
 - Supports unattended installation (see `ACCEPT_MOJANG_EULA`)
 - Supports configuration of user-defined JVM arguments as part of the container configuration (see `USER_JVM_ARGS`)
 - Drops `root` privileges after setting up the container and runs the server as an unprivileged user
+- Multi architecture support (`x86-64`/`amd64`, `aarch64`/`arm64`)
+
+![Screenshot](./screenshot.png)
 
 ## Example
 
