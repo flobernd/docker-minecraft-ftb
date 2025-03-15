@@ -13,6 +13,7 @@ possible.
 - Supports unattended installation (see `ACCEPT_MOJANG_EULA`)
 - Supports configuration of user-defined JVM arguments as part of the container configuration (see `USER_JVM_ARGS`)
 - Drops `root` privileges after setting up the container and runs the server as an unprivileged user
+  - Allows to customize the internal user (see `GID`/`UID`)
 - Multi architecture support (`x86-64`/`amd64`, `aarch64`/`arm64`)
 
 ![Screenshot](./screenshot.png)
@@ -129,6 +130,18 @@ Set `1` to force a reinstallation of the modpack when the container is started.
 > container.
 
 Default: `0`
+
+### `GID`
+
+The `GID` of the internal `minecraft` group.
+
+Default: `99`
+
+### `UID`
+
+The `UID` of the internal `minecraft` user.
+
+Default: `99`
 
 ## License
 
