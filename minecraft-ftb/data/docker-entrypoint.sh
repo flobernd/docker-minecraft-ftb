@@ -45,6 +45,53 @@ check_tty() {
     fi
 }
 
+setup_minecraft_user() {
+    if [ "$(id -u)" != "0" ]; then
+        return 0
+    fi
+
+    requires_chown=false
+    target_group_name="minecraft"
+    target_user_name="minecraft"
+
+    if getent group "${GID}" > /dev/null 2>&1; then
+        group_name=$(getent group "${GID}" | cut -d: -f1)
+        
+        if [ "${group_name}" != "${target_group_name}" ]; then
+            echoerr "The group with GID '${ansi_g}${GID}${ansi_rst}' and name '${ansi_b}${group_name}${ansi_rst}' can not be used as the 'minecraft' group."
+            return 1
+        fi
+    else
+        requires_chown=true
+        groupadd \
+            --gid "${GID}" \
+            --system \
+            "${target_group_name}"
+    fi
+
+    if getent passwd "${UID}" > /dev/null 2>&1; then
+        user_name=$(getent passwd "${UID}" | cut -d: -f1)
+        
+        if [ "${user_name}" != "${target_user_name}" ]; then
+            echoerr "The user with UID '${ansi_g}${UID}${ansi_rst}' and name '${ansi_b}${user_name}${ansi_rst}' can not be used as the 'minecraft' user."
+            return 1
+        fi
+    else
+        requires_chown=true
+        useradd \
+            --gid "${GID}" \
+            --home-dir /var/lib/minecraft \
+            --no-create-home \
+            --system \
+            --uid "${UID}" \
+            "${target_user_name}"
+    fi
+
+    if [ $requires_chown = true ]; then
+        chown -R minecraft:minecraft /var/lib/minecraft
+    fi
+}
+
 # $1 = modpack id
 # rt = modpack info JSON payload
 fetch_modpack_info() {
@@ -101,8 +148,10 @@ get_and_run_installer() {
     local pack_installer="/var/lib/minecraft/serverinstall_${1}_${2}"
 
     # Adjust permissions for 'minecraft' directory
-    chown -R minecraft:minecraft /var/lib/minecraft
-    chmod 0700 /var/lib/minecraft
+    if [ "$(id -u)" = "0" ]; then
+        chown -R minecraft:minecraft /var/lib/minecraft
+        chmod 0700 /var/lib/minecraft
+    fi
 
     # Download the installer
     local content_type
@@ -130,7 +179,9 @@ get_and_run_installer() {
     patch_start_script || return $?
 
     # Adjust permissions for files in 'minecraft' directory
-    chown -R minecraft:minecraft /var/lib/minecraft
+    if [ "$(id -u)" = "0" ]; then
+        chown -R minecraft:minecraft /var/lib/minecraft
+    fi
 }
 
 locate_start_script() {
@@ -194,6 +245,7 @@ update_user_jvm_args() {
 if [ "$1" = "/var/lib/minecraft/start.sh" ] || [ "$1" = "/var/lib/minecraft/run.sh" ]; then
     check_tty
     check_environment
+    setup_minecraft_user
 
     manifest_found=false
     local_pack_id=0
@@ -280,7 +332,7 @@ if [ "$1" = "/var/lib/minecraft/start.sh" ] || [ "$1" = "/var/lib/minecraft/run.
 
     if [ "${local_version_id}" -gt "${target_version_id}" ]; then
         echoerr "Detected downgrade from version " \
-                "'${ansi_b}${local_version_name}${ansi_rst}' [${ansi_g}${local_version_id}${ansi_rst}] to " \
+                "'${ansi_b}${local_version_name}${ansi_rst}' [${ansi_g}${local_version_id}${ansi_rst}] to" \
                 "'${ansi_b}${target_version_name}${ansi_rst}' [${ansi_g}${target_version_id}${ansi_rst}]."
         echoerr "To continue, set the 'FORCE_REINSTALL' environment variable to '1' and retry."
         exit 1
@@ -290,7 +342,7 @@ if [ "$1" = "/var/lib/minecraft/start.sh" ] || [ "$1" = "/var/lib/minecraft/run.
 
     if [ "${local_version_id}" -lt "${target_version_id}" ]; then
         echo -e "Upgrading modpack from version " \
-                "'${ansi_b}${local_version_name}${ansi_rst}' [${ansi_g}${local_version_id}${ansi_rst}] to " \
+                "'${ansi_b}${local_version_name}${ansi_rst}' [${ansi_g}${local_version_id}${ansi_rst}] to" \
                 "'${ansi_b}${target_version_name}${ansi_rst}' [${ansi_g}${target_version_id}${ansi_rst}]."
 
         get_and_run_installer "${target_pack_id}" "${target_version_id}"
@@ -308,7 +360,9 @@ if [ "$1" = "/var/lib/minecraft/start.sh" ] || [ "$1" = "/var/lib/minecraft/run.
 
     if [ ! -f eula.txt ] && [ "${ACCEPT_MOJANG_EULA:=0}" == 1 ]; then
         printf "eula=true\n" > eula.txt
-        chown minecraft:minecraft eula.txt
+        if [ "$(id -u)" = "0" ]; then
+            chown minecraft:minecraft eula.txt
+        fi
     fi
 
     # Set- or update JVM arguments in `user_jvm_args.txt`
@@ -321,9 +375,15 @@ if [ "$1" = "/var/lib/minecraft/start.sh" ] || [ "$1" = "/var/lib/minecraft/run.
     # Make sure to use the correct start script for the installed modpack and version
     set -- "${start_script}" "${@:2}"
 
-    echo -e "Starting modpack '${ansi_b}${modpack_name}${ansi_rst}' [${ansi_g}${target_pack_id}${ansi_rst}] " \
+    echo -e "Starting modpack '${ansi_b}${modpack_name}${ansi_rst}' [${ansi_g}${target_pack_id}${ansi_rst}]" \
             "version '${ansi_b}${local_version_name}${ansi_rst}' [${ansi_g}${local_version_id}${ansi_rst}]"
 fi
 
-# Execute command on behalf of the 'minecraft' user
-exec setpriv --reuid=minecraft --regid=minecraft --init-groups --reset-env "$@"
+ if [ "$(id -u)" = "0" ]; then
+    # Execute command as the 'minecraft' user
+    exec setpriv --reuid=minecraft --regid=minecraft --init-groups --reset-env "$@"
+ else
+    # Already running as non-root, just execute the command
+     exec "$@"
+ fi
+
