@@ -1,4 +1,4 @@
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 # Environment
 
@@ -21,15 +21,17 @@ RUN set -eux; \
         curl \
         jq \
     ; \
-    rm -rf /var/lib/apt/lists/*
-
-RUN mkdir /var/lib/minecraft
+    rm -rf /var/lib/apt/lists/*; \
+    mkdir /var/lib/minecraft
 
 # Entrypoint config
 
 STOPSIGNAL SIGINT
 
-COPY docker-entrypoint.sh /usr/local/bin/
+COPY docker-entrypoint.sh docker-healthcheck.sh /usr/local/bin/
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=300s --retries=3 \
+    CMD ["docker-healthcheck.sh"]
 ENTRYPOINT ["docker-entrypoint.sh"]
 
 WORKDIR /var/lib/minecraft
