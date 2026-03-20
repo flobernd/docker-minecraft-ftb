@@ -95,12 +95,6 @@ jobs:
           outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
           provenance: false
 
-      # - name: Artifact Name
-      #   env:
-      #     IMAGE_ID: ${{ inputs.image }}
-      #   run: |
-      #     echo "IMAGE_ID=${IMAGE_ID////_}" >> $GITHUB_ENV
-
       - name: Export Digest
         run: |
           mkdir -p /tmp/digests
@@ -125,12 +119,6 @@ jobs:
     steps:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      # - name: Artifact Name
-      #   env:
-      #     IMAGE_ID: ${{ inputs.image }}
-      #   run: |
-      #     echo "IMAGE_ID=${IMAGE_ID////_}" >> $GITHUB_ENV
 
       - name: Download Digests
         uses: actions/download-artifact@v4
