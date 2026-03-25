@@ -172,7 +172,7 @@ get_and_run_installer() {
     chmod +x "${pack_installer}"
 
     # Install- or update the modpack
-    "${pack_installer}" --auto
+    "${pack_installer}" --auto --force
     rm "${pack_installer}"
 
     # Patch start script
