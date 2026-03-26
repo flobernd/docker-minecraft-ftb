@@ -1,0 +1,370 @@
+name: Integration
+
+on: # yamllint disable-line rule:truthy
+  push:
+    branches:
+      - integration-tests # TODO: remove before merging to master
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: minecraft-ftb
+  FTB_PACK_ID: '126'
+  OLD_VERSION: '100172'
+  NEW_VERSION: '100236'
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+
+    steps:
+      - name: Check for new commits since last successful run
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          last_sha=$(gh run list \
+            --repo "${{ github.repository }}" \
+            --workflow=integration.yaml \
+            --branch=master \
+            --status=success \
+            --limit=1 \
+            --json headSha \
+            --jq '.[0].headSha // empty')
+
+          if [ -n "${last_sha}" ] && [ "${last_sha}" = "${{ github.sha }}" ]; then
+            echo "No new commits since last successful run"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "New commits detected (last: ${last_sha:-none}, current: ${{ github.sha }})"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    needs: preflight
+    if: needs.preflight.outputs.skip != 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: ./minecraft-ftb/data
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:test
+
+      - name: Save image
+        run: docker save "${{ env.IMAGE_NAME }}:test" -o /tmp/image.tar
+
+      - name: Upload image
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-image
+          path: /tmp/image.tar
+          retention-days: 1
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    needs: build
+    timeout-minutes: 90
+
+    env:
+      CONTAINER: ftb-test
+      VOLUME: ftb-data
+
+    steps:
+      - name: Download image
+        uses: actions/download-artifact@v8
+        with:
+          name: docker-image
+          path: /tmp
+
+      - name: Load image
+        run: docker load -i /tmp/image.tar
+
+      - name: Create helper scripts
+        run: |
+          cat > /tmp/wait-for-log.sh << 'SCRIPT'
+          #!/bin/bash
+          set -uo pipefail
+          container="$1"; pattern="$2"; timeout="${3:-600}"
+          deadline=$((SECONDS + timeout))
+          while [ $SECONDS -lt $deadline ]; do
+            if docker logs "$container" 2>&1 | grep -q "$pattern"; then
+              echo "Found: $pattern"
+              exit 0
+            fi
+            state=$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null)
+            if [ "$state" != "true" ]; then
+              echo "Container exited before pattern was found: $pattern"
+              docker logs "$container" 2>&1 | tail -30
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "Timeout (${timeout}s) waiting for: $pattern"
+          docker logs "$container" 2>&1 | tail -30
+          exit 1
+          SCRIPT
+          chmod +x /tmp/wait-for-log.sh
+
+          cat > /tmp/wait-for-exit.sh << 'SCRIPT'
+          #!/bin/bash
+          set -uo pipefail
+          container="$1"; expected="$2"; wait_timeout="${3:-300}"
+          actual=$(timeout "$wait_timeout" docker wait "$container") || {
+            echo "Timeout (${wait_timeout}s) waiting for container to exit"
+            docker logs "$container" 2>&1 | tail -30
+            exit 1
+          }
+          if [ "$actual" != "$expected" ]; then
+            echo "Expected exit code $expected, got $actual"
+            docker logs "$container" 2>&1 | tail -30
+            exit 1
+          fi
+          echo "Container exited with code $actual"
+          SCRIPT
+          chmod +x /tmp/wait-for-exit.sh
+
+          cat > /tmp/wait-for-server.sh << 'SCRIPT'
+          #!/bin/bash
+          set -uo pipefail
+          container="$1"; port="${2:-25565}"; timeout="${3:-900}"
+          deadline=$((SECONDS + timeout))
+          while [ $SECONDS -lt $deadline ]; do
+            if docker exec "$container" bash -c \
+              "echo > /dev/tcp/localhost/$port" 2>/dev/null; then
+              echo "Server is listening on port $port"
+              exit 0
+            fi
+            state=$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null)
+            if [ "$state" != "true" ]; then
+              echo "Container exited while waiting for server"
+              docker logs "$container" 2>&1 | tail -30
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "Timeout (${timeout}s) waiting for server on port $port"
+          docker logs "$container" 2>&1 | tail -30
+          exit 1
+          SCRIPT
+          chmod +x /tmp/wait-for-server.sh
+
+      # ----------------------------------------------------------------
+      # Test 1: Fresh install (specific version) + healthcheck
+      # ----------------------------------------------------------------
+
+      - name: 'Test: Fresh install (specific version + healthcheck)'
+        run: |
+          docker volume create "$VOLUME"
+
+          docker run -dit \
+            --name "$CONTAINER" \
+            -v "${VOLUME}:/var/lib/minecraft" \
+            -e "FTB_MODPACK_ID=${FTB_PACK_ID}" \
+            -e "FTB_MODPACK_VERSION_ID=${OLD_VERSION}" \
+            -e "ACCEPT_MOJANG_EULA=1" \
+            -e "USER_JVM_ARGS=-Xms1G -Xmx4G" \
+            "${IMAGE_NAME}:test"
+
+          /tmp/wait-for-log.sh "$CONTAINER" "Starting modpack" 900
+          /tmp/wait-for-server.sh "$CONTAINER" 25565 900
+
+          timeout 120 bash -c '
+            until [ "$(docker inspect -f "{{.State.Health.Status}}" "'"$CONTAINER"'")" = "healthy" ]; do
+              sleep 5
+            done
+          '
+          echo "Docker healthcheck reports healthy"
+
+          docker stop -t 30 "$CONTAINER" && docker rm "$CONTAINER"
+
+      # ----------------------------------------------------------------
+      # Test 2: Upgrade (old -> new version)
+      #   Reuses volume from test 1 (OLD_VERSION installed)
+      # ----------------------------------------------------------------
+
+      - name: 'Test: Upgrade'
+        run: |
+          docker run -dit \
+            --name "$CONTAINER" \
+            -v "${VOLUME}:/var/lib/minecraft" \
+            -e "FTB_MODPACK_ID=${FTB_PACK_ID}" \
+            -e "FTB_MODPACK_VERSION_ID=${NEW_VERSION}" \
+            -e "ACCEPT_MOJANG_EULA=1" \
+            -e "USER_JVM_ARGS=-Xms1G -Xmx4G" \
+            "${IMAGE_NAME}:test"
+
+          /tmp/wait-for-log.sh "$CONTAINER" "Upgrading modpack from version" 300
+          /tmp/wait-for-log.sh "$CONTAINER" "Starting modpack" 900
+
+          docker stop -t 5 "$CONTAINER" && docker rm "$CONTAINER"
+
+      # ----------------------------------------------------------------
+      # Test 3: Downgrade blocked
+      #   Reuses volume from test 2 (NEW_VERSION installed)
+      # ----------------------------------------------------------------
+
+      - name: 'Test: Downgrade blocked'
+        run: |
+          docker run -dit \
+            --name "$CONTAINER" \
+            -v "${VOLUME}:/var/lib/minecraft" \
+            -e "FTB_MODPACK_ID=${FTB_PACK_ID}" \
+            -e "FTB_MODPACK_VERSION_ID=${OLD_VERSION}" \
+            -e "ACCEPT_MOJANG_EULA=1" \
+            "${IMAGE_NAME}:test"
+
+          /tmp/wait-for-exit.sh "$CONTAINER" 1 300
+          docker logs "$CONTAINER" 2>&1 | grep -q "Detected downgrade"
+          echo "Downgrade correctly blocked"
+
+          docker rm "$CONTAINER"
+
+      # ----------------------------------------------------------------
+      # Test 4: Force downgrade (FORCE_REINSTALL=1)
+      #   Reuses volume from test 3 (still NEW_VERSION)
+      # ----------------------------------------------------------------
+
+      - name: 'Test: Force downgrade'
+        run: |
+          docker run -dit \
+            --name "$CONTAINER" \
+            -v "${VOLUME}:/var/lib/minecraft" \
+            -e "FTB_MODPACK_ID=${FTB_PACK_ID}" \
+            -e "FTB_MODPACK_VERSION_ID=${OLD_VERSION}" \
+            -e "ACCEPT_MOJANG_EULA=1" \
+            -e "FORCE_REINSTALL=1" \
+            -e "USER_JVM_ARGS=-Xms1G -Xmx4G" \
+            "${IMAGE_NAME}:test"
+
+          /tmp/wait-for-log.sh "$CONTAINER" "Installing modpack version" 300
+          /tmp/wait-for-log.sh "$CONTAINER" "Starting modpack" 900
+
+          docker stop -t 5 "$CONTAINER" && docker rm "$CONTAINER"
+
+      # ----------------------------------------------------------------
+      # Test 5: Auto-update
+      #   Reuses volume from test 4 (OLD_VERSION installed)
+      # ----------------------------------------------------------------
+
+      - name: 'Test: Auto-update'
+        run: |
+          docker run -dit \
+            --name "$CONTAINER" \
+            -v "${VOLUME}:/var/lib/minecraft" \
+            -e "FTB_MODPACK_ID=${FTB_PACK_ID}" \
+            -e "AUTO_UPDATE=1" \
+            -e "ACCEPT_MOJANG_EULA=1" \
+            -e "USER_JVM_ARGS=-Xms1G -Xmx4G" \
+            "${IMAGE_NAME}:test"
+
+          /tmp/wait-for-log.sh "$CONTAINER" "Upgrading modpack from version" 300
+          /tmp/wait-for-log.sh "$CONTAINER" "Starting modpack" 900
+
+          docker stop -t 5 "$CONTAINER" && docker rm "$CONTAINER"
+
+      # ----------------------------------------------------------------
+      # Test 6: Fresh install (latest version, no version pin)
+      # ----------------------------------------------------------------
+
+      - name: 'Test: Fresh install (latest version)'
+        run: |
+          docker volume rm "$VOLUME" 2>/dev/null || true
+          docker volume create "$VOLUME"
+
+          docker run -dit \
+            --name "$CONTAINER" \
+            -v "${VOLUME}:/var/lib/minecraft" \
+            -e "FTB_MODPACK_ID=${FTB_PACK_ID}" \
+            -e "ACCEPT_MOJANG_EULA=1" \
+            -e "USER_JVM_ARGS=-Xms1G -Xmx4G" \
+            "${IMAGE_NAME}:test"
+
+          /tmp/wait-for-log.sh "$CONTAINER" "Installing modpack version" 300
+          /tmp/wait-for-log.sh "$CONTAINER" "Starting modpack" 900
+
+          docker stop -t 5 "$CONTAINER" && docker rm "$CONTAINER"
+
+      # ----------------------------------------------------------------
+      # Test 7: Force reinstall (same version)
+      # ----------------------------------------------------------------
+
+      - name: 'Test: Force reinstall (same version)'
+        run: |
+          docker volume rm "$VOLUME" 2>/dev/null || true
+          docker volume create "$VOLUME"
+
+          # Step 1: Initial install
+          docker run -dit \
+            --name "$CONTAINER" \
+            -v "${VOLUME}:/var/lib/minecraft" \
+            -e "FTB_MODPACK_ID=${FTB_PACK_ID}" \
+            -e "FTB_MODPACK_VERSION_ID=${OLD_VERSION}" \
+            -e "ACCEPT_MOJANG_EULA=1" \
+            -e "USER_JVM_ARGS=-Xms1G -Xmx4G" \
+            "${IMAGE_NAME}:test"
+
+          /tmp/wait-for-log.sh "$CONTAINER" "Starting modpack" 900
+          docker stop -t 5 "$CONTAINER" && docker rm "$CONTAINER"
+
+          # Step 2: Force reinstall same version
+          docker run -dit \
+            --name "$CONTAINER" \
+            -v "${VOLUME}:/var/lib/minecraft" \
+            -e "FTB_MODPACK_ID=${FTB_PACK_ID}" \
+            -e "FTB_MODPACK_VERSION_ID=${OLD_VERSION}" \
+            -e "ACCEPT_MOJANG_EULA=1" \
+            -e "FORCE_REINSTALL=1" \
+            -e "USER_JVM_ARGS=-Xms1G -Xmx4G" \
+            "${IMAGE_NAME}:test"
+
+          /tmp/wait-for-log.sh "$CONTAINER" "Installing modpack version" 300
+          /tmp/wait-for-log.sh "$CONTAINER" "Starting modpack" 900
+
+          docker stop -t 5 "$CONTAINER" && docker rm "$CONTAINER"
+
+      # ----------------------------------------------------------------
+      # Debug + cleanup
+      # ----------------------------------------------------------------
+
+      - name: Dump container logs
+        if: failure()
+        run: docker logs "$CONTAINER" 2>&1 || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f "$CONTAINER" 2>/dev/null || true
+          docker volume rm "$VOLUME" 2>/dev/null || true
